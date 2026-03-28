@@ -6,8 +6,8 @@ import { get } from '../utils/storage'
 import SubjectBadge, { SUBJECT_COLORS } from './SubjectBadge'
 
 const TOTAL = 57
-// Estimated effort per topic: 1hr video + 1hr notes = 2hrs
-const HRS_PER_TOPIC = 2
+// Estimated effort per topic: 2.5hr video + 1hr notes = 3.5hrs
+const HRS_PER_TOPIC = 3.5
 
 function motivationalMessage(pct) {
   if (pct === 0)  return "Let's get started! Every topic counts."
@@ -221,7 +221,7 @@ export default function OverviewTab({ progressMap, examDate, classes }) {
         )}
 
         <p className="text-xs text-slate-400 mt-3">
-          Estimate: {HRS_PER_TOPIC} hrs per topic (1hr video + 1hr notes). Adjust your pace as needed.
+          Estimate: {HRS_PER_TOPIC} hrs per topic (2.5hr video + 1hr notes). Adjust your pace as needed.
         </p>
       </div>
 
