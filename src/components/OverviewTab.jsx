@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
-import { Flame, Target, BookCheck, Clock } from 'lucide-react'
+import { Flame, Target, BookCheck, Clock, Zap } from 'lucide-react'
 import { countdown, classesForDate, todayString, formatDate } from '../utils/dates'
 import { overallProgress, subjectProgress } from '../utils/progress'
 import { get } from '../utils/storage'
 import SubjectBadge, { SUBJECT_COLORS } from './SubjectBadge'
 
 const TOTAL = 57
+// Estimated effort per topic: 1hr video + 1hr notes = 2hrs
+const HRS_PER_TOPIC = 2
 
 function motivationalMessage(pct) {
   if (pct === 0)  return "Let's get started! Every topic counts."
@@ -56,6 +58,24 @@ export default function OverviewTab({ progressMap, examDate, classes }) {
   const completedCount = classes.filter(
     (c) => progressMap[c.id]?.videoDone && progressMap[c.id]?.notesDone
   ).length
+
+  // Study hours calculation
+  const remainingTopics = TOTAL - completedCount
+  const totalHrsNeeded = remainingTopics * HRS_PER_TOPIC
+  const daysLeft = time.days
+  const hrsPerDay = daysLeft > 0 ? (totalHrsNeeded / daysLeft).toFixed(1) : '—'
+  const hrsPerDayNum = daysLeft > 0 ? totalHrsNeeded / daysLeft : null
+
+  // Per-subject pending hours
+  const subjectHrs = (() => {
+    const map = {}
+    classes.forEach((c) => {
+      if (!map[c.subject]) map[c.subject] = 0
+      const done = progressMap[c.id]?.videoDone && progressMap[c.id]?.notesDone
+      if (!done) map[c.subject] += HRS_PER_TOPIC
+    })
+    return Object.entries(map).filter(([, h]) => h > 0).sort((a, b) => b[1] - a[1])
+  })()
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
@@ -122,8 +142,91 @@ export default function OverviewTab({ progressMap, examDate, classes }) {
         </div>
       </div>
 
-      {/* Subject progress bars */}
+      {/* Study hours recommendation */}
       <div className="animate-fade-up-3 bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Zap size={18} className="text-indigo-600" />
+          <h2 className="text-base font-semibold text-slate-700" style={{ fontFamily: 'Outfit, sans-serif' }}>
+            Study Hours Needed
+          </h2>
+        </div>
+
+        {/* Main callout */}
+        <div className={`rounded-xl p-4 mb-4 flex items-center gap-4 ${
+          hrsPerDayNum === null ? 'bg-slate-50' :
+          hrsPerDayNum <= 2 ? 'bg-green-50 border border-green-200' :
+          hrsPerDayNum <= 4 ? 'bg-amber-50 border border-amber-200' :
+          'bg-red-50 border border-red-200'
+        }`}>
+          <div className="text-center flex-shrink-0">
+            <p className={`text-4xl font-bold leading-none ${
+              hrsPerDayNum === null ? 'text-slate-400' :
+              hrsPerDayNum <= 2 ? 'text-green-700' :
+              hrsPerDayNum <= 4 ? 'text-amber-700' :
+              'text-red-700'
+            }`} style={{ fontFamily: 'Outfit, sans-serif' }}>
+              {hrsPerDay}
+            </p>
+            <p className={`text-xs font-semibold mt-0.5 ${
+              hrsPerDayNum === null ? 'text-slate-400' :
+              hrsPerDayNum <= 2 ? 'text-green-600' :
+              hrsPerDayNum <= 4 ? 'text-amber-600' :
+              'text-red-600'
+            }`}>hrs / day</p>
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-slate-800">
+              {hrsPerDayNum === null
+                ? 'Exam date passed or not set.'
+                : hrsPerDayNum <= 2
+                ? 'Comfortable pace — you have time!'
+                : hrsPerDayNum <= 4
+                ? 'Manageable — stay consistent.'
+                : 'Intensive — prioritise every day.'}
+            </p>
+            <div className="flex flex-wrap gap-3 mt-2 text-xs text-slate-500">
+              <span><span className="font-semibold text-slate-700">{remainingTopics}</span> topics left</span>
+              <span>×</span>
+              <span><span className="font-semibold text-slate-700">{HRS_PER_TOPIC} hrs</span> each</span>
+              <span>=</span>
+              <span><span className="font-semibold text-slate-700">{totalHrsNeeded} hrs</span> total</span>
+              <span>÷</span>
+              <span><span className="font-semibold text-slate-700">{daysLeft}</span> days left</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Per-subject breakdown */}
+        {subjectHrs.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Hours remaining by subject</p>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              {subjectHrs.map(([subject, hrs]) => (
+                <div
+                  key={subject}
+                  className="flex items-center gap-2 bg-slate-50 rounded-xl px-3 py-2"
+                >
+                  <div
+                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: SUBJECT_COLORS[subject] }}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-xs text-slate-600 truncate">{subject.replace(' Ability', '').replace(' Comprehension', ' Comp.')}</p>
+                    <p className="text-sm font-bold text-slate-800" style={{ fontFamily: 'Outfit, sans-serif' }}>{hrs} hrs</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <p className="text-xs text-slate-400 mt-3">
+          Estimate: {HRS_PER_TOPIC} hrs per topic (1hr video + 1hr notes). Adjust your pace as needed.
+        </p>
+      </div>
+
+      {/* Subject progress bars */}
+      <div className="animate-fade-up-5 bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
         <div className="flex items-center gap-2 mb-4">
           <Target size={18} className="text-indigo-600" />
           <h2 className="text-base font-semibold text-slate-700" style={{ fontFamily: 'Outfit, sans-serif' }}>Subject Progress</h2>
@@ -147,7 +250,7 @@ export default function OverviewTab({ progressMap, examDate, classes }) {
       </div>
 
       {/* Today's classes */}
-      <div className="animate-fade-up-4 bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+      <div className="animate-fade-up-6 bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
         <div className="flex items-center gap-2 mb-4">
           <BookCheck size={18} className="text-indigo-600" />
           <h2 className="text-base font-semibold text-slate-700" style={{ fontFamily: 'Outfit, sans-serif' }}>
