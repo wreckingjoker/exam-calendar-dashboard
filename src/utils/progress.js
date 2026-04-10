@@ -10,20 +10,23 @@ export const overallProgress = (progressMap, classes) => {
 }
 
 /**
- * Returns per-subject completion % based on videoDone only
- * { "Verbal Ability": 40, "Quantitative Ability": 60, ... }
+ * Returns per-subject completion % using weighted score:
+ *   videoDone = 0.5, notesDone = 0.5 → both = 1.0 (fully done)
+ * This ensures the bars respond to any checkbox being ticked.
  */
 export const subjectProgress = (progressMap, classes) => {
   const subjects = {}
   classes.forEach((c) => {
-    if (!subjects[c.subject]) subjects[c.subject] = { done: 0, total: 0 }
+    if (!subjects[c.subject]) subjects[c.subject] = { score: 0, total: 0 }
     subjects[c.subject].total++
-    if (progressMap[c.id]?.videoDone) subjects[c.subject].done++
+    const p = progressMap[c.id]
+    if (p?.videoDone) subjects[c.subject].score += 0.5
+    if (p?.notesDone) subjects[c.subject].score += 0.5
   })
   return Object.fromEntries(
     Object.entries(subjects).map(([s, v]) => [
       s,
-      Math.round((v.done / v.total) * 100),
+      Math.round((v.score / v.total) * 100),
     ])
   )
 }

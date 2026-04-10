@@ -24,6 +24,6 @@ export const remove = (key) => {
 }
 
 export const clearAll = () => {
-  const keys = ['kmat_progress', 'kmat_exam_date', 'kmat_plans', 'kmat_mock_tests', 'kmat_streak']
+  const keys = ['kmat_progress', 'kmat_exam_date', 'kmat_plans', 'kmat_mock_tests', 'kmat_streak', 'kmat_daily_target', 'kmat_study_log']
   keys.forEach(remove)
 }

@@ -26,6 +26,8 @@ export default function App() {
   const [examDate, setExamDateState] = useState(() => get('kmat_exam_date', '2026-05-15'))
   const [mockTests, setMockTestsState] = useState(() => get('kmat_mock_tests', []))
   const [plans, setPlansState] = useState(() => get('kmat_plans', {}))
+  const [dailyTarget, setDailyTargetState] = useState(() => get('kmat_daily_target', 4))
+  const [studyLog, setStudyLogState] = useState(() => get('kmat_study_log', {}))
 
   const setProgressMap = useCallback((updater) => {
     setProgressMapState((prev) => {
@@ -56,11 +58,26 @@ export default function App() {
     })
   }, [])
 
+  const setDailyTarget = useCallback((hrs) => {
+    setDailyTargetState(hrs)
+    set('kmat_daily_target', hrs)
+  }, [])
+
+  const setStudyLog = useCallback((updater) => {
+    setStudyLogState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater
+      set('kmat_study_log', next)
+      return next
+    })
+  }, [])
+
   const handleReset = useCallback(() => {
     setProgressMapState({})
     setExamDateState('2026-05-15')
     setMockTestsState([])
     setPlansState({})
+    setDailyTargetState(4)
+    setStudyLogState({})
   }, [])
 
   return (
@@ -121,7 +138,7 @@ export default function App() {
 
       {/* Main content */}
       <main className="flex-1 pb-20 md:pb-6">
-        {activeTab === 'overview'  && <OverviewTab progressMap={progressMap} examDate={examDate} classes={classes} />}
+        {activeTab === 'overview'  && <OverviewTab progressMap={progressMap} examDate={examDate} classes={classes} dailyTarget={dailyTarget} setDailyTarget={setDailyTarget} studyLog={studyLog} setStudyLog={setStudyLog} />}
         {activeTab === 'schedule'  && <ScheduleTab progressMap={progressMap} setProgressMap={setProgressMap} classes={classes} />}
         {activeTab === 'planner'   && <PlannerTab plans={plans} setPlans={setPlans} progressMap={progressMap} classes={classes} />}
         {activeTab === 'mocktests' && <MockTestTab mockTests={mockTests} setMockTests={setMockTests} />}
@@ -147,6 +164,8 @@ export default function App() {
         <SettingsPanel
           examDate={examDate}
           setExamDate={setExamDate}
+          dailyTarget={dailyTarget}
+          setDailyTarget={setDailyTarget}
           onReset={handleReset}
           onClose={() => setShowSettings(false)}
         />
