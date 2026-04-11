@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Flame, Target, BookCheck, Clock, Zap, Timer, CalendarCheck, Pencil, Check } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Flame, Target, BookCheck, Clock, Zap, Timer, CalendarCheck, Pencil, Check, Play, Square, History } from 'lucide-react'
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ReferenceLine, ResponsiveContainer, AreaChart, Area,
@@ -59,19 +59,65 @@ function lastNDays(n) {
   return Array.from({ length: n }, (_, i) => addDaysToToday(i - n + 1))
 }
 
-export default function OverviewTab({ progressMap, examDate, classes, dailyTarget, setDailyTarget, studyLog, setStudyLog }) {
+/** Format seconds → "H:MM:SS" */
+function fmtElapsed(secs) {
+  const h = Math.floor(secs / 3600)
+  const m = Math.floor((secs % 3600) / 60)
+  const s = secs % 60
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+/** Format timestamp → "HH:MM" */
+function fmtTime(ts) {
+  const d = new Date(ts)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+export default function OverviewTab({ progressMap, examDate, classes, dailyTarget, setDailyTarget, studyLog, setStudyLog, activeSession, setActiveSession, sessions, setSessions }) {
   const [time, setTime] = useState(countdown(examDate))
   const [editingTarget, setEditingTarget] = useState(false)
   const [targetInput, setTargetInput] = useState(String(dailyTarget))
   const [todayInput, setTodayInput] = useState('')
+  const [elapsed, setElapsed] = useState(0)
+  const elapsedRef = useRef(0)
 
+  // Countdown tick
   useEffect(() => {
     setTime(countdown(examDate))
     const id = setInterval(() => setTime(countdown(examDate)), 60000)
     return () => clearInterval(id)
   }, [examDate])
 
+  // Session elapsed timer — ticks every second when a session is active
+  useEffect(() => {
+    if (!activeSession) { setElapsed(0); elapsedRef.current = 0; return }
+    const update = () => {
+      const secs = Math.floor((Date.now() - activeSession.startTimestamp) / 1000)
+      elapsedRef.current = secs
+      setElapsed(secs)
+    }
+    update()
+    const id = setInterval(update, 1000)
+    return () => clearInterval(id)
+  }, [activeSession])
+
   const today = todayString()
+
+  const startSession = () => {
+    setActiveSession({ startTimestamp: Date.now(), startTime: fmtTime(Date.now()) })
+  }
+
+  const endSession = () => {
+    if (!activeSession) return
+    const endTs = Date.now()
+    const durationHrs = parseFloat(((endTs - activeSession.startTimestamp) / 3600000).toFixed(2))
+    const session = { start: activeSession.startTime, end: fmtTime(endTs), durationHrs }
+    setSessions(prev => ({ ...prev, [today]: [...(prev[today] || []), session] }))
+    setStudyLog(prev => ({ ...prev, [today]: parseFloat(((prev[today] || 0) + durationHrs).toFixed(2)) }))
+    setActiveSession(null)
+  }
   const todaysClasses = classesForDate(classes, today)
   const pct = overallProgress(progressMap, classes)
   const subjectPct = subjectProgress(progressMap, classes)
@@ -101,51 +147,63 @@ export default function OverviewTab({ progressMap, examDate, classes, dailyTarge
       .sort((a, b) => b[1] - a[1])
   })()
 
-  // Study tracker calculations
-  const todayLogged = studyLog[today] ?? null
-  const logEntries = Object.entries(studyLog).filter(([, h]) => h > 0)
+  // ── Live session contribution ──
+  // Elapsed seconds → hours for the running session (updates every second via elapsed state)
+  const liveSessionHrs = activeSession ? parseFloat((elapsed / 3600).toFixed(2)) : 0
+
+  // Effective today total = already saved hours + current live session
+  const savedTodayHrs = studyLog[today] ?? 0
+  const effectiveTodayHrs = parseFloat((savedTodayHrs + liveSessionHrs).toFixed(2))
+
+  // ── Study tracker calculations (all use effectiveTodayHrs for today) ──
+  const todayLogged = effectiveTodayHrs > 0 ? effectiveTodayHrs : null
+
+  // Build an effective studyLog that replaces today's entry with the live total
+  const effectiveLog = { ...studyLog, ...(effectiveTodayHrs > 0 ? { [today]: effectiveTodayHrs } : {}) }
+  const logEntries = Object.entries(effectiveLog).filter(([, h]) => h > 0)
   const totalLoggedHrs = logEntries.reduce((s, [, h]) => s + h, 0)
   const avgActualHrs = logEntries.length > 0 ? totalLoggedHrs / logEntries.length : null
 
-  // Finish date predictions
-  const daysToFinishAtTarget = dailyTarget > 0 ? Math.ceil(totalHrsNeeded / dailyTarget) : null
-  const daysToFinishAtActual = avgActualHrs && avgActualHrs > 0 ? Math.ceil(totalHrsNeeded / avgActualHrs) : null
+  // ── Remaining hours adjusts for today's live progress ──
+  const totalHrsRemaining = Math.max(0, totalHrsNeeded - totalLoggedHrs)
 
-  const targetFinishDate  = daysToFinishAtTarget !== null ? addDaysToToday(daysToFinishAtTarget) : null
-  const actualFinishDate  = daysToFinishAtActual !== null ? addDaysToToday(daysToFinishAtActual) : null
+  // Finish date predictions
+  const daysToFinishAtTarget = dailyTarget > 0 ? Math.ceil(totalHrsRemaining / dailyTarget) : null
+  const daysToFinishAtActual = avgActualHrs && avgActualHrs > 0 ? Math.ceil(totalHrsRemaining / avgActualHrs) : null
+
+  const targetFinishDate = daysToFinishAtTarget !== null ? addDaysToToday(daysToFinishAtTarget) : null
+  const actualFinishDate = daysToFinishAtActual !== null ? addDaysToToday(daysToFinishAtActual) : null
 
   const bufferAtTarget = targetFinishDate ? daysLeft - daysToFinishAtTarget : null
   const bufferAtActual = actualFinishDate ? daysLeft - daysToFinishAtActual : null
 
-  // ── Chart data ──
+  // ── Chart data (use effectiveLog so live session appears in graphs) ──
 
   // 14-day ComposedChart: bars + 3-day rolling average line
   const chartData14 = lastNDays(14).map((d, i, arr) => {
-    const hrs = studyLog[d] ?? 0
+    const hrs = effectiveLog[d] ?? 0
     const hit = hrs >= dailyTarget
     const isToday = d === today
-    // 3-day rolling average (current + 2 previous)
-    const window = arr.slice(Math.max(0, i - 2), i + 1).map(dd => studyLog[dd] ?? 0)
+    const window = arr.slice(Math.max(0, i - 2), i + 1).map(dd => effectiveLog[dd] ?? 0)
     const avg = window.some(v => v > 0)
       ? parseFloat((window.reduce((a, b) => a + b, 0) / window.length).toFixed(1))
       : null
     return {
       label: new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' }).replace(',', ''),
-      hrs,
+      hrs: parseFloat(hrs.toFixed(2)),
       avg,
       hit,
       isToday,
     }
   })
 
-  // Cumulative area chart: actual logged vs required pace
+  // Cumulative area chart: actual vs required pace
   const cumulativeData = (() => {
     const days = lastNDays(14)
     let cumActual = 0
-    // required pace = total hrs / days left, accruing from day 0
     const dailyRequired = daysLeft > 0 ? totalHrsNeeded / daysLeft : 0
     return days.map((d, i) => {
-      cumActual += studyLog[d] ?? 0
+      cumActual += effectiveLog[d] ?? 0
       return {
         label: new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' }).replace(',', ''),
         actual: parseFloat(cumActual.toFixed(1)),
@@ -229,6 +287,84 @@ export default function OverviewTab({ progressMap, examDate, classes, dailyTarge
           <h2 className="text-base font-semibold text-slate-700" style={{ fontFamily: 'Outfit, sans-serif' }}>Study Tracker</h2>
         </div>
 
+        {/* ── Session Timer ── */}
+        <div className={`rounded-2xl border p-4 transition-all ${activeSession ? 'bg-indigo-600 border-indigo-500' : 'bg-slate-50 border-slate-200'}`}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Timer size={16} className={activeSession ? 'text-indigo-200' : 'text-indigo-600'} />
+              <span className={`text-xs font-semibold uppercase tracking-wide ${activeSession ? 'text-indigo-200' : 'text-slate-600'}`}>
+                {activeSession ? 'Session in Progress' : 'Study Session'}
+              </span>
+            </div>
+            {activeSession && (
+              <span className="text-xs text-indigo-200">Started at {activeSession.startTime}</span>
+            )}
+          </div>
+
+          {activeSession ? (
+            <div className="flex items-center justify-between">
+              {/* Live elapsed clock */}
+              <div>
+                <p className="text-5xl font-bold text-white tracking-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>
+                  {fmtElapsed(elapsed)}
+                </p>
+                <p className="text-indigo-200 text-xs mt-1">
+                  ≈ {(elapsed / 3600).toFixed(2)} hrs
+                </p>
+              </div>
+              {/* End button */}
+              <button
+                onClick={endSession}
+                className="flex items-center gap-2 bg-white text-indigo-700 font-semibold text-sm px-5 py-3 rounded-xl hover:bg-indigo-50 transition-colors shadow-sm"
+              >
+                <Square size={14} fill="currentColor" /> End Session
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-2xl font-bold text-slate-700" style={{ fontFamily: 'Outfit, sans-serif' }}>
+                  {new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                </p>
+                <p className="text-xs text-slate-400 mt-0.5">Current time</p>
+              </div>
+              <button
+                onClick={startSession}
+                className="flex items-center gap-2 bg-indigo-600 text-white font-semibold text-sm px-5 py-3 rounded-xl hover:bg-indigo-700 transition-colors shadow-sm"
+              >
+                <Play size={14} fill="currentColor" /> Start Session
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Today's session history */}
+        {(sessions[today]?.length > 0) && (
+          <div className="bg-slate-50 rounded-xl border border-slate-200 p-3">
+            <div className="flex items-center gap-1.5 mb-2">
+              <History size={13} className="text-slate-500" />
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Today's Sessions</span>
+              <span className="ml-auto text-xs font-bold text-indigo-600">
+                {sessions[today].reduce((s, x) => s + x.durationHrs, 0).toFixed(2)} hrs total
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {sessions[today].map((s, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs">
+                  <span className="font-mono font-semibold text-slate-700">{s.start}</span>
+                  <span className="text-slate-300">→</span>
+                  <span className="font-mono font-semibold text-slate-700">{s.end}</span>
+                  <span className="ml-auto bg-indigo-100 text-indigo-700 font-bold px-2 py-0.5 rounded-md">
+                    {s.durationHrs < 1
+                      ? `${Math.round(s.durationHrs * 60)} min`
+                      : `${s.durationHrs.toFixed(2)} hrs`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Daily target + today's log */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
 
@@ -265,37 +401,61 @@ export default function OverviewTab({ progressMap, examDate, classes, dailyTarge
             </p>
           </div>
 
-          {/* Log today */}
-          <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+          {/* Today's hours — live feed from sessions */}
+          <div className={`rounded-xl p-4 border transition-all ${effectiveTodayHrs >= dailyTarget ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-200'}`}>
             <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Today's Hours</p>
-            {todayLogged !== null ? (
-              <div className="flex items-end gap-2">
-                <span className="text-4xl font-bold text-slate-800" style={{ fontFamily: 'Outfit, sans-serif' }}>{todayLogged}</span>
-                <span className="text-sm text-slate-500 mb-1">hrs logged</span>
-                <button
-                  onClick={() => { setTodayInput(String(todayLogged)); setStudyLog((p) => { const n = { ...p }; delete n[today]; return n }) }}
-                  className="mb-1 p-1 text-slate-400 hover:text-slate-600 transition-colors"
-                >
-                  <Pencil size={13} />
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
+            <div className="flex items-end gap-2">
+              <span className={`text-4xl font-bold ${effectiveTodayHrs >= dailyTarget ? 'text-green-700' : 'text-slate-800'}`} style={{ fontFamily: 'Outfit, sans-serif' }}>
+                {effectiveTodayHrs.toFixed(2)}
+              </span>
+              <span className="text-sm text-slate-500 mb-1">/ {dailyTarget} hrs</span>
+              {activeSession && (
+                <span className="mb-1.5 flex items-center gap-1 text-xs font-semibold text-indigo-600 animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block" />
+                  live
+                </span>
+              )}
+            </div>
+
+            {/* Progress bar toward daily target */}
+            <div className="h-2 bg-slate-200 rounded-full overflow-hidden mt-2 mb-2">
+              <div
+                className={`h-full rounded-full transition-all duration-1000 ${effectiveTodayHrs >= dailyTarget ? 'bg-green-500' : 'bg-indigo-500'}`}
+                style={{ width: `${Math.min((effectiveTodayHrs / dailyTarget) * 100, 100)}%` }}
+              />
+            </div>
+
+            {/* Breakdown: sessions vs manual */}
+            <div className="flex flex-wrap gap-3 text-xs text-slate-500">
+              {sessions[today]?.length > 0 && (
+                <span>
+                  <span className="font-semibold text-slate-700">{sessions[today].reduce((s, x) => s + x.durationHrs, 0).toFixed(2)} hrs</span>
+                  {' '}from {sessions[today].length} session{sessions[today].length !== 1 ? 's' : ''}
+                </span>
+              )}
+              {liveSessionHrs > 0 && (
+                <span className="text-indigo-600 font-semibold">+ {liveSessionHrs.toFixed(2)} hrs running</span>
+              )}
+              {savedTodayHrs > 0 && sessions[today]?.length === 0 && (
+                <span><span className="font-semibold text-slate-700">{savedTodayHrs} hrs</span> manually logged</span>
+              )}
+            </div>
+
+            {/* Manual override (only shown when no active session) */}
+            {!activeSession && todayLogged === null && (
+              <div className="flex items-center gap-2 mt-3">
                 <input
-                  type="number" min="0" max="24" step="0.5" placeholder="e.g. 4"
+                  type="number" min="0" max="24" step="0.5" placeholder="Manual entry"
                   value={todayInput}
                   onChange={(e) => setTodayInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && logToday()}
-                  className="w-24 border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                  className="w-28 border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
                 />
-                <span className="text-sm text-slate-500">hrs</span>
-                <button onClick={logToday}
-                  className="px-3 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 transition-colors">
-                  Log
+                <button onClick={logToday} className="px-3 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 transition-colors">
+                  Log hrs
                 </button>
               </div>
             )}
-            <p className="text-xs text-slate-400 mt-1">Target: {dailyTarget} hrs today</p>
           </div>
         </div>
 
